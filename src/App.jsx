@@ -402,7 +402,7 @@ Provide: 1. Executive Summary 2. Key Metrics vs UAE benchmarks 3. Top 3 Concerns
       });
       const json = await res.json();
       setAnalysis(json.analysis || "No analysis returned.");
-    } catch { setAnalysis("Error running analysis. Please try again."); }
+    } catch(e) { setAnalysis("Error running analysis. Please try again."); }
     setAnalysisLoading(false);
   };
 
@@ -424,8 +424,7 @@ Provide: 1. Executive Summary 2. Key Metrics vs UAE benchmarks 3. Top 3 Concerns
       const nProfit = tRev - tExp;
       if (tRev === 0 && tExp === 0) return null;
       return `${m} ${activeYear}: Revenue=${fmt(tRev)}, Expenses=${fmt(tExp)}, Net Profit=${fmt(nProfit)}`;
-    }).filter(Boolean).join("
-");
+    }).filter(Boolean).join("\n");
 
     const contextMsg = `You are an expert restaurant financial consultant in the UAE specialising in Indian restaurants.
 
@@ -455,7 +454,7 @@ User question: ${userMsg}`;
       });
       const json = await res.json();
       setChatMessages(prev => [...prev, { role: "assistant", content: json.analysis || "Sorry, I could not get a response." }]);
-    } catch {
+    } catch(e) {
       setChatMessages(prev => [...prev, { role: "assistant", content: "Error connecting to AI. Please try again." }]);
     }
     setChatLoading(false);
