@@ -38,6 +38,29 @@ Fv10xKRCB7Xw/XsmuAvEHshP
   client_id: '108180060006894068264',
 };
 
+// Exact row mapping in the Excel sheet for each item (column C = input)
+const ITEM_ROW_MAP = {
+  // Revenue
+  card_sale: 7, cash_pos: 8, cash_no_pos: 9, catering: 10,
+  zomato: 11, keeta: 12, careem: 13, talabat: 14,
+  noon: 15, smiles: 16, deliveroo: 17, ifc_received: 20,
+  // Expenses
+  chunnilal: 26, alahbaab: 27, kaveri: 28, titli: 29,
+  nada: 30, hk: 31, alfarah: 32, coal: 33,
+  brothergas: 34, alkhattal: 35, caterpack: 36,
+  misc_cash: 39,
+  shop_rent: 42, staff_rent: 43, loan_emi: 44,
+  wifi: 47, landline: 48, mobile: 49, dewa: 50,
+  salary_total: 53,
+  visa: 56, airticket: 57,
+  pos_rent: 60, it_support: 61,
+  accounting: 64, bank_charges: 65, vat_charges: 66,
+  ifc_transferred: 69,
+  marketing: 72,
+  misc: 75,
+  food_safety: 78, pic: 79,
+};
+
 const getAuth = () => new google.auth.GoogleAuth({
   credentials: CREDENTIALS,
   scopes: ['https://www.googleapis.com/auth/spreadsheets'],
@@ -47,7 +70,6 @@ export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-
   if (req.method === 'OPTIONS') return res.status(200).end();
 
   const sheetName = req.query.sheet;
@@ -58,34 +80,50 @@ export default async function handler(req, res) {
     const sheets = google.sheets({ version: 'v4', auth });
 
     if (req.method === 'GET') {
-      const response = await sheets.spreadsheets.values.get({
+      // Read all input cells (column C) at once
+      const ranges = Object.entries(ITEM_ROW_MAP).map(
+        ([, row]) => `'${sheetName}'!C${row}`
+      );
+      const response = await sheets.spreadsheets.values.batchGet({
         spreadsheetId: SHEET_ID,
-        range: `${sheetName}!A1:E200`,
+        ranges,
       });
-      return res.status(200).json({ values: response.data.values || [] });
+
+      // Build result object
+      const result = {};
+      const valueRanges = response.data.valueRanges || [];
+      Object.keys(ITEM_ROW_MAP).forEach((id, i) => {
+        const val = valueRanges[i]?.values?.[0]?.[0];
+        result[id] = val || '';
+      });
+
+      return res.status(200).json({ data: result });
     }
 
     if (req.method === 'POST') {
-      const { values } = req.body;
+      const { data } = req.body; // { card_sale: 50000, cash_pos: 0, ... }
 
-      try {
-        await sheets.spreadsheets.batchUpdate({
+      // Build batch update — only update column C cells
+      const dataValues = [];
+      for (const [id, value] of Object.entries(data)) {
+        const row = ITEM_ROW_MAP[id];
+        if (row) {
+          dataValues.push({
+            range: `'${sheetName}'!C${row}`,
+            values: [[value === '' ? null : Number(value) || 0]],
+          });
+        }
+      }
+
+      if (dataValues.length > 0) {
+        await sheets.spreadsheets.values.batchUpdate({
           spreadsheetId: SHEET_ID,
-          requestBody: { requests: [{ addSheet: { properties: { title: sheetName } } }] },
+          requestBody: {
+            valueInputOption: 'RAW',
+            data: dataValues,
+          },
         });
-      } catch (e) { /* sheet already exists */ }
-
-      await sheets.spreadsheets.values.clear({
-        spreadsheetId: SHEET_ID,
-        range: `${sheetName}!A:E`,
-      });
-
-      await sheets.spreadsheets.values.update({
-        spreadsheetId: SHEET_ID,
-        range: `${sheetName}!A1`,
-        valueInputOption: 'RAW',
-        requestBody: { values },
-      });
+      }
 
       return res.status(200).json({ success: true });
     }
