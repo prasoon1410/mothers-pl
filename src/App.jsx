@@ -303,6 +303,8 @@ export default function App() {
               ...current,
               revenue: { ...current.revenue, ...Object.fromEntries(Object.entries(d).filter(([k]) => revenueKeys.includes(k))) },
               expenses: { ...current.expenses, ...Object.fromEntries(Object.entries(d).filter(([k]) => !revenueKeys.includes(k))) },
+              customRevenue: json.customRevenue || current.customRevenue || [],
+              customExpenses: json.customExpenses || current.customExpenses || [],
             }
           };
         });
@@ -334,7 +336,11 @@ export default function App() {
       await fetch(`/api/sheets?sheet=${encodeURIComponent(sheetName)}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ data })
+        body: JSON.stringify({
+          data,
+          customRevenue: currentData.customRevenue || [],
+          customExpenses: currentData.customExpenses || [],
+        })
       });
       setSaveStatus("✅ Saved to Google Sheets");
     } catch (e) {
