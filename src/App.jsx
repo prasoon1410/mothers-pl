@@ -210,6 +210,51 @@ export default function App() {
   // Load data when month changes
   useEffect(() => { loadFromSheets(); }, [activeMonth, activeYear]);
 
+  // Load ALL months data on first app load so AI chat has full context
+  useEffect(() => {
+    const loadAllMonths = async () => {
+      for (let m = 0; m < 12; m++) {
+        if (m === activeMonth) continue; // already loaded by main effect
+        const mKey = `${activeYear}-${String(m+1).padStart(2,"0")}`;
+        const mName = getSheetName(m, activeYear);
+        try {
+          const res = await fetch(`/api/sheets?sheet=${encodeURIComponent(mName)}`);
+          const json = await res.json();
+          if (json.data) {
+            const d = json.data;
+            const revenueKeys = ["card_sale","cash_pos","cash_no_pos","catering","zomato","keeta","careem","talabat","noon","smiles","deliveroo","ifc_received"];
+            const accrualKeys = ["shop_rent","visa","airticket","food_safety","pic"];
+            setAllData(prev => {
+              const current = prev[mKey] || buildEmptyMonth();
+              const newAccruals = { ...current.accruals };
+              const newExpenses = { ...current.expenses };
+              Object.entries(d).forEach(([k, v]) => {
+                if (revenueKeys.includes(k)) return;
+                if (accrualKeys.includes(k) && v && v !== "0" && v !== 0) {
+                  newAccruals[k] = { ...(current.accruals?.[k] || {}), totalPaid: String(v) };
+                } else if (!accrualKeys.includes(k)) {
+                  newExpenses[k] = v;
+                }
+              });
+              return {
+                ...prev,
+                [mKey]: {
+                  ...current,
+                  revenue: { ...current.revenue, ...Object.fromEntries(Object.entries(d).filter(([k]) => revenueKeys.includes(k))) },
+                  expenses: newExpenses,
+                  accruals: newAccruals,
+                  customRevenue: json.customRevenue || current.customRevenue || [],
+                  customExpenses: json.customExpenses || current.customExpenses || [],
+                }
+              };
+            });
+          }
+        } catch (e) { /* skip failed months */ }
+      }
+    };
+    loadAllMonths();
+  }, [activeYear]);
+
   const setMonthData = (updater) => {
     setAllData(prev => {
       const current = prev[monthKey] || buildEmptyMonth();
