@@ -295,14 +295,28 @@ export default function App() {
       if (json.data) {
         const d = json.data;
         const revenueKeys = ["card_sale","cash_pos","cash_no_pos","catering","zomato","keeta","careem","talabat","noon","smiles","deliveroo","ifc_received"];
+        const accrualKeys = ["shop_rent","visa","airticket","food_safety","pic"];
         setAllData(prev => {
           const current = prev[monthKey] || buildEmptyMonth();
+          // Separate accrual items from regular expenses
+          const newAccruals = { ...current.accruals };
+          const newExpenses = { ...current.expenses };
+          Object.entries(d).forEach(([k, v]) => {
+            if (revenueKeys.includes(k)) return; // handled separately
+            if (accrualKeys.includes(k) && v && v !== "0" && v !== 0) {
+              // Put back into accruals.totalPaid
+              newAccruals[k] = { ...(current.accruals?.[k] || {}), totalPaid: String(v) };
+            } else if (!accrualKeys.includes(k)) {
+              newExpenses[k] = v;
+            }
+          });
           return {
             ...prev,
             [monthKey]: {
               ...current,
               revenue: { ...current.revenue, ...Object.fromEntries(Object.entries(d).filter(([k]) => revenueKeys.includes(k))) },
-              expenses: { ...current.expenses, ...Object.fromEntries(Object.entries(d).filter(([k]) => !revenueKeys.includes(k))) },
+              expenses: newExpenses,
+              accruals: newAccruals,
               customRevenue: json.customRevenue || current.customRevenue || [],
               customExpenses: json.customExpenses || current.customExpenses || [],
             }
