@@ -175,7 +175,7 @@ export default function App() {
   const [pwInput, setPwInput] = useState("");
   const [pwError, setPwError] = useState(false);
   const [showLogin, setShowLogin] = useState(false);
-  const [activeMonth, setActiveMonth] = useState(new Date().getMonth());
+  const [activeMonth, setActiveMonth] = useState(0); // Default to January
   const [activeYear] = useState(CURRENT_YEAR);
   const [allData, setAllData] = useState({});
   const [activeTab, setActiveTab] = useState("pl");
@@ -410,10 +410,31 @@ Provide: 1. Executive Summary 2. Key Metrics vs UAE benchmarks 3. Top 3 Concerns
     const userMsg = quickMsg || chatInput.trim();
     if (!userMsg || chatLoading) return;
     setChatInput("");
-    const contextMsg = `You are an expert restaurant financial consultant in the UAE specialising in Indian restaurants. 
-Current P&L context for Mothers Restaurant (${MONTHS[activeMonth]} ${activeYear}):
+
+    // Build full year context across all months
+    const allMonthsContext = MONTHS.map((m, i) => {
+      const key = `${activeYear}-${String(i+1).padStart(2,"0")}`;
+      const d = allData[key];
+      if (!d) return null;
+      const tRev = REVENUE_GROUPS.reduce((s, g) => s + g.items.reduce((ss, it) => ss + (parseFloat(d.revenue[it.id]) || 0), 0), 0);
+      const tExp = EXPENSE_GROUPS.reduce((s, g) => s + g.items.reduce((ss, it) => {
+        if (it.accrual) { const acc = d.accruals?.[it.id]; return ss + (acc?.totalPaid ? getMonthlyAccrual(acc.totalPaid, it.accrual) : (parseFloat(d.expenses[it.id])||0)); }
+        return ss + (parseFloat(d.expenses[it.id])||0);
+      }, 0), 0);
+      const nProfit = tRev - tExp;
+      if (tRev === 0 && tExp === 0) return null;
+      return `${m} ${activeYear}: Revenue=${fmt(tRev)}, Expenses=${fmt(tExp)}, Net Profit=${fmt(nProfit)}`;
+    }).filter(Boolean).join("
+");
+
+    const contextMsg = `You are an expert restaurant financial consultant in the UAE specialising in Indian restaurants.
+
+Mothers Restaurant P&L Data ${activeYear}:
+${allMonthsContext || "No data entered yet"}
+
+Currently viewing: ${MONTHS[activeMonth]} ${activeYear}
 - Trading Revenue: ${fmt(tradingRevenue)}
-- Total Revenue: ${fmt(totalRevenue)}  
+- Total Revenue: ${fmt(totalRevenue)}
 - Total Expenses: ${fmt(totalExpenses)}
 - Gross Profit: ${fmt(grossProfit)} (${grossMargin}%)
 - Net Profit: ${fmt(netProfit)} (${profitMargin}%)
