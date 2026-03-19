@@ -290,12 +290,21 @@ export default function App() {
     try {
       const res = await fetch(`/api/sheets?sheet=${encodeURIComponent(sheetName)}`);
       const json = await res.json();
-      if (json.values && json.values.length > 1) {
-        const parsed = parseSheetData(json.values);
-        if (parsed) {
-          setAllData(prev => ({ ...prev, [monthKey]: parsed }));
-          setLoadStatus("✅ Loaded from Google Sheets");
-        }
+      if (json.data) {
+        const d = json.data;
+        const revenueKeys = ["card_sale","cash_pos","cash_no_pos","catering","zomato","keeta","careem","talabat","noon","smiles","deliveroo","ifc_received"];
+        setAllData(prev => {
+          const current = prev[monthKey] || buildEmptyMonth();
+          return {
+            ...prev,
+            [monthKey]: {
+              ...current,
+              revenue: { ...current.revenue, ...Object.fromEntries(Object.entries(d).filter(([k]) => revenueKeys.includes(k))) },
+              expenses: { ...current.expenses, ...Object.fromEntries(Object.entries(d).filter(([k]) => !revenueKeys.includes(k))) },
+            }
+          };
+        });
+        setLoadStatus("✅ Loaded from Google Sheets");
       } else {
         setLoadStatus("📋 No data yet for this month");
       }
@@ -311,19 +320,19 @@ export default function App() {
     setSaveStatus("💾 Saving...");
     try {
       const currentData = dataToSave || monthData;
-      const tRev = REVENUE_GROUPS.reduce((s, g) => s + g.items.reduce((ss, it) => ss + (parseFloat(currentData.revenue[it.id]) || 0), 0), 0)
-        + (currentData.customRevenue||[]).reduce((s, r) => s + (parseFloat(r.amount)||0), 0);
-      const tExp = EXPENSE_GROUPS.reduce((s, g) => s + g.items.reduce((ss, it) => {
-        if (it.accrual) { const acc = currentData.accruals?.[it.id]; return ss + (acc?.totalPaid ? getMonthlyAccrual(acc.totalPaid, it.accrual) : (parseFloat(currentData.expenses[it.id])||0)); }
-        return ss + (parseFloat(currentData.expenses[it.id])||0);
-      }, 0), 0) + (currentData.customExpenses||[]).reduce((s, e) => s + (parseFloat(e.amount)||0), 0);
-      const nProfit = tRev - tExp;
-      const pMargin = tRev > 0 ? ((nProfit / tRev) * 100).toFixed(1) : "0.0";
-      const rows = flattenDataForSheet(currentData, tRev, tExp, nProfit, pMargin);
+      const data = {
+        ...currentData.revenue,
+        ...Object.fromEntries(
+          Object.entries(currentData.expenses).map(([k, v]) => {
+            if (currentData.accruals?.[k]?.totalPaid) return [k, currentData.accruals[k].totalPaid];
+            return [k, v];
+          })
+        ),
+      };
       await fetch(`/api/sheets?sheet=${encodeURIComponent(sheetName)}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ values: rows })
+        body: JSON.stringify({ data })
       });
       setSaveStatus("✅ Saved to Google Sheets");
     } catch (e) {
