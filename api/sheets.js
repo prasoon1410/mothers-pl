@@ -80,7 +80,7 @@ export default async function handler(req, res) {
     const sheets = google.sheets({ version: 'v4', auth });
 
     if (req.method === 'GET') {
-      // Read all input cells (column C) at once
+      // Read all fixed input cells (column C) at once
       const ranges = Object.entries(ITEM_ROW_MAP).map(
         ([, row]) => `'${sheetName}'!C${row}`
       );
@@ -89,7 +89,6 @@ export default async function handler(req, res) {
         ranges,
       });
 
-      // Build result object
       const result = {};
       const valueRanges = response.data.valueRanges || [];
       Object.keys(ITEM_ROW_MAP).forEach((id, i) => {
@@ -97,15 +96,29 @@ export default async function handler(req, res) {
         result[id] = val || '';
       });
 
-      return res.status(200).json({ data: result });
+      // Read custom categories from App-Data tab
+      let customRevenue = [];
+      let customExpenses = [];
+      try {
+        const appDataRes = await sheets.spreadsheets.values.get({
+          spreadsheetId: SHEET_ID,
+          range: 'App-Data!A1:E500',
+        });
+        const rows = appDataRes.data.values || [];
+        const monthRows = rows.filter(row => row[0] === sheetName);
+        customRevenue = monthRows.filter(r => r[1] === 'Revenue').map(r => ({ id: r[2], label: r[3], amount: r[4] }));
+        customExpenses = monthRows.filter(r => r[1] === 'Expense').map(r => ({ id: r[2], label: r[3], amount: r[4] }));
+      } catch (e) { /* App-Data tab doesn't exist yet */ }
+
+      return res.status(200).json({ data: result, customRevenue, customExpenses });
     }
 
     if (req.method === 'POST') {
-      const { data } = req.body; // { card_sale: 50000, cash_pos: 0, ... }
+      const { data, customRevenue, customExpenses } = req.body;
 
-      // Build batch update — only update column C cells
+      // Build batch update for fixed categories
       const dataValues = [];
-      for (const [id, value] of Object.entries(data)) {
+      for (const [id, value] of Object.entries(data || {})) {
         const row = ITEM_ROW_MAP[id];
         if (row) {
           dataValues.push({
@@ -118,11 +131,53 @@ export default async function handler(req, res) {
       if (dataValues.length > 0) {
         await sheets.spreadsheets.values.batchUpdate({
           spreadsheetId: SHEET_ID,
-          requestBody: {
-            valueInputOption: 'RAW',
-            data: dataValues,
-          },
+          requestBody: { valueInputOption: 'RAW', data: dataValues },
         });
+      }
+
+      // Save custom categories to App-Data tab
+      if ((customRevenue && customRevenue.length > 0) || (customExpenses && customExpenses.length > 0)) {
+        // Ensure App-Data tab exists
+        try {
+          await sheets.spreadsheets.batchUpdate({
+            spreadsheetId: SHEET_ID,
+            requestBody: { requests: [{ addSheet: { properties: { title: 'App-Data' } } }] },
+          });
+        } catch (e) { /* already exists */ }
+
+        // Read existing App-Data to find or update this month's custom data
+        const appDataRes = await sheets.spreadsheets.values.get({
+          spreadsheetId: SHEET_ID,
+          range: 'App-Data!A1:E500',
+        });
+
+        const existingRows = appDataRes.data.values || [];
+        
+        // Remove existing rows for this month
+        const filteredRows = existingRows.filter(row => row[0] !== sheetName);
+        
+        // Add new custom rows for this month
+        const newRows = [
+          ...(customRevenue || []).map(r => [sheetName, 'Revenue', r.id, r.label, r.amount || 0]),
+          ...(customExpenses || []).map(e => [sheetName, 'Expense', e.id, e.label, e.amount || 0]),
+        ];
+
+        const allRows = [...filteredRows, ...newRows];
+
+        // Write back
+        await sheets.spreadsheets.values.clear({
+          spreadsheetId: SHEET_ID,
+          range: 'App-Data!A:E',
+        });
+
+        if (allRows.length > 0) {
+          await sheets.spreadsheets.values.update({
+            spreadsheetId: SHEET_ID,
+            range: 'App-Data!A1',
+            valueInputOption: 'RAW',
+            requestBody: { values: allRows },
+          });
+        }
       }
 
       return res.status(200).json({ success: true });
