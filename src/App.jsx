@@ -392,13 +392,21 @@ FOOD COST %: ${tradingRevenue > 0 ? ((expenseGroupTotals[0]/tradingRevenue)*100)
 All amounts in AED.
 Provide: 1. Executive Summary 2. Key Metrics vs UAE benchmarks 3. Top 3 Concerns 4. Top 3 Opportunities 5. Action Plan (5 steps)`;
     try {
-      const res = await fetch("https://api.anthropic.com/v1/messages", {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ model: "claude-sonnet-4-20250514", max_tokens: 1000, messages: [{ role: "user", content: prompt }] })
+      const res = await fetch("https://api.openai.com/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": "Bearer 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"
+        },
+        body: JSON.stringify({
+          model: "gpt-4o",
+          max_tokens: 1000,
+          messages: [{ role: "user", content: prompt }]
+        })
       });
       const json = await res.json();
-      setAnalysis(json.content?.map(b => b.text||"").join("") || "No analysis returned.");
-    } catch { setAnalysis("Error running analysis."); }
+      setAnalysis(json.choices?.[0]?.message?.content || "No analysis returned.");
+    } catch { setAnalysis("Error running analysis. Please try again."); }
     setAnalysisLoading(false);
   };
 
