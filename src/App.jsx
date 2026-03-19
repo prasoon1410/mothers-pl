@@ -456,11 +456,27 @@ Provide: 1. Executive Summary 2. Key Metrics vs UAE benchmarks 3. Top 3 Concerns
     if (!userMsg || chatLoading) return;
     setChatInput("");
 
-    // Build full year context across all months
-    const allMonthsContext = MONTHS.map((m, i) => {
-      const key = `${activeYear}-${String(i+1).padStart(2,"0")}`;
-      const d = allData[key];
+    // Build full year context with detailed breakdown
+    const buildMonthDetail = (d, m) => {
       if (!d) return null;
+      // Revenue breakdown
+      const revLines = REVENUE_GROUPS.flatMap(g => g.items
+        .map(it => ({ label: it.label, val: parseFloat(d.revenue[it.id]) || 0 }))
+        .filter(x => x.val > 0)
+        .map(x => `  ${x.label}: ${fmt(x.val)}`)
+      );
+      // Expense breakdown
+      const expLines = EXPENSE_GROUPS.flatMap(g => g.items.map(it => {
+        let val = 0;
+        if (it.accrual) {
+          const acc = d.accruals?.[it.id];
+          val = acc?.totalPaid ? getMonthlyAccrual(acc.totalPaid, it.accrual) : (parseFloat(d.expenses[it.id])||0);
+        } else {
+          val = parseFloat(d.expenses[it.id]) || 0;
+        }
+        return { label: it.label, group: g.label, val };
+      }).filter(x => x.val > 0).map(x => `  ${x.label} (${x.group}): ${fmt(x.val)}`));
+
       const tRev = REVENUE_GROUPS.reduce((s, g) => s + g.items.reduce((ss, it) => ss + (parseFloat(d.revenue[it.id]) || 0), 0), 0);
       const tExp = EXPENSE_GROUPS.reduce((s, g) => s + g.items.reduce((ss, it) => {
         if (it.accrual) { const acc = d.accruals?.[it.id]; return ss + (acc?.totalPaid ? getMonthlyAccrual(acc.totalPaid, it.accrual) : (parseFloat(d.expenses[it.id])||0)); }
@@ -468,8 +484,19 @@ Provide: 1. Executive Summary 2. Key Metrics vs UAE benchmarks 3. Top 3 Concerns
       }, 0), 0);
       const nProfit = tRev - tExp;
       if (tRev === 0 && tExp === 0) return null;
-      return `${m} ${activeYear}: Revenue=${fmt(tRev)}, Expenses=${fmt(tExp)}, Net Profit=${fmt(nProfit)}`;
-    }).filter(Boolean).join("\n");
+
+      return `--- ${m} ${activeYear} ---
+Revenue: ${fmt(tRev)}
+${revLines.join("\n")}
+Expenses: ${fmt(tExp)}
+${expLines.join("\n")}
+Net Profit: ${fmt(nProfit)}`;
+    };
+
+    const allMonthsContext = MONTHS.map((m, i) => {
+      const key = `${activeYear}-${String(i+1).padStart(2,"0")}`;
+      return buildMonthDetail(allData[key], m);
+    }).filter(Boolean).join("\n\n");
 
     const contextMsg = `You are an expert restaurant financial consultant in the UAE specialising in Indian restaurants.
 
