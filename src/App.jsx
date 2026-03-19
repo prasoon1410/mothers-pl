@@ -181,6 +181,9 @@ export default function App() {
   const [activeTab, setActiveTab] = useState("pl");
   const [analysis, setAnalysis] = useState("");
   const [analysisLoading, setAnalysisLoading] = useState(false);
+  const [chatMessages, setChatMessages] = useState([]);
+  const [chatInput, setChatInput] = useState("");
+  const [chatLoading, setChatLoading] = useState(false);
   const [expandedGroups, setExpandedGroups] = useState({});
   const [saveStatus, setSaveStatus] = useState("");
   const [loadStatus, setLoadStatus] = useState("");
@@ -392,22 +395,55 @@ FOOD COST %: ${tradingRevenue > 0 ? ((expenseGroupTotals[0]/tradingRevenue)*100)
 All amounts in AED.
 Provide: 1. Executive Summary 2. Key Metrics vs UAE benchmarks 3. Top 3 Concerns 4. Top 3 Opportunities 5. Action Plan (5 steps)`;
     try {
-      const res = await fetch("https://api.openai.com/v1/chat/completions", {
+      const res = await fetch("/api/analyze", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": "Bearer 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"
-        },
-        body: JSON.stringify({
-          model: "gpt-4o",
-          max_tokens: 1000,
-          messages: [{ role: "user", content: prompt }]
-        })
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ prompt })
       });
       const json = await res.json();
-      setAnalysis(json.choices?.[0]?.message?.content || "No analysis returned.");
+      setAnalysis(json.analysis || "No analysis returned.");
     } catch { setAnalysis("Error running analysis. Please try again."); }
     setAnalysisLoading(false);
+  };
+
+  const sendChatMessage = async (quickMsg) => {
+    const userMsg = quickMsg || chatInput.trim();
+    if (!userMsg || chatLoading) return;
+    setChatInput("");
+    const contextMsg = `You are an expert restaurant financial consultant in the UAE specialising in Indian restaurants. 
+Current P&L context for Mothers Restaurant (${MONTHS[activeMonth]} ${activeYear}):
+- Trading Revenue: ${fmt(tradingRevenue)}
+- Total Revenue: ${fmt(totalRevenue)}  
+- Total Expenses: ${fmt(totalExpenses)}
+- Gross Profit: ${fmt(grossProfit)} (${grossMargin}%)
+- Net Profit: ${fmt(netProfit)} (${profitMargin}%)
+- Food Cost %: ${tradingRevenue > 0 ? ((expenseGroupTotals[0]/tradingRevenue)*100).toFixed(1) : 0}%
+All amounts in AED. Answer concisely and practically.
+
+User question: ${userMsg}`;
+
+    const newMessages = [...chatMessages, { role: "user", content: userMsg }];
+    setChatMessages(newMessages);
+    setChatLoading(true);
+
+    try {
+      const res = await fetch("/api/analyze", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ prompt: contextMsg })
+      });
+      const json = await res.json();
+      setChatMessages(prev => [...prev, { role: "assistant", content: json.analysis || "Sorry, I could not get a response." }]);
+    } catch {
+      setChatMessages(prev => [...prev, { role: "assistant", content: "Error connecting to AI. Please try again." }]);
+    }
+    setChatLoading(false);
+
+    // Auto scroll to bottom
+    setTimeout(() => {
+      const el = document.getElementById("chat-messages");
+      if (el) el.scrollTop = el.scrollHeight;
+    }, 100);
   };
 
   const renderMarkdown = (t) => t
@@ -650,16 +686,82 @@ Provide: 1. Executive Summary 2. Key Metrics vs UAE benchmarks 3. Top 3 Concerns
 
         {activeTab === "analysis" && (
           <div ref={analysisRef}>
+            {/* Auto Analysis Section */}
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem" }}>
-              <span style={{ color: "#f5c842" }}>AI Analysis — {MONTHS[activeMonth]} {activeYear}</span>
+              <span style={{ color: "#f5c842", fontSize: "0.9rem", fontWeight: "bold" }}>📊 P&L Analysis — {MONTHS[activeMonth]} {activeYear}</span>
               <button onClick={runAnalysis} disabled={analysisLoading || totalRevenue === 0}
                 style={{ ...S.btn(analysisLoading ? "#1a1200" : "linear-gradient(135deg,#b45309,#92400e)"), opacity: totalRevenue === 0 ? 0.5 : 1 }}>
                 {analysisLoading ? "⏳ Analysing..." : "🤖 Run AI Analysis"}
               </button>
             </div>
-            {analysisLoading && <div style={{ textAlign: "center", padding: "4rem", color: "#9a6a20" }}><div style={{ fontSize: "2.5rem" }}>🤖</div><div style={{ marginTop: "0.8rem" }}>Analysing against UAE benchmarks...</div></div>}
-            {!analysisLoading && !analysis && <div style={{ textAlign: "center", padding: "4rem", color: "#4a3a20" }}><div style={{ fontSize: "2.5rem" }}>📊</div><div style={{ marginTop: "0.8rem" }}>Enter P&L data then click Run AI Analysis</div></div>}
-            {!analysisLoading && analysis && <div style={{ background: "#111116", border: "1px solid #2a1800", borderRadius: "10px", padding: "1.5rem", lineHeight: 1.75, fontSize: "0.88rem", color: "#d4c4a8" }} dangerouslySetInnerHTML={{ __html: renderMarkdown(analysis) }} />}
+            {analysisLoading && <div style={{ textAlign: "center", padding: "3rem", color: "#9a6a20" }}><div style={{ fontSize: "2.5rem" }}>🤖</div><div style={{ marginTop: "0.8rem" }}>Analysing against UAE benchmarks...</div></div>}
+            {!analysisLoading && !analysis && <div style={{ textAlign: "center", padding: "3rem", color: "#4a3a20" }}><div style={{ fontSize: "2.5rem" }}>📊</div><div style={{ marginTop: "0.8rem" }}>Enter P&L data then click Run AI Analysis</div></div>}
+            {!analysisLoading && analysis && <div style={{ background: "#111116", border: "1px solid #2a1800", borderRadius: "10px", padding: "1.5rem", lineHeight: 1.75, fontSize: "0.88rem", color: "#d4c4a8", marginBottom: "1.5rem" }} dangerouslySetInnerHTML={{ __html: renderMarkdown(analysis) }} />}
+
+            {/* Chat Interface */}
+            <div style={{ background: "#111116", border: "1px solid #2a1800", borderRadius: "10px", overflow: "hidden" }}>
+              <div style={{ background: "linear-gradient(90deg,#1a0e00,#2c1800)", padding: "0.7rem 1rem", borderBottom: "1px solid #2a1800", display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                <span style={{ fontSize: "1.1rem" }}>💬</span>
+                <span style={{ color: "#f5c842", fontSize: "0.85rem", fontWeight: "bold" }}>Ask AI Anything</span>
+                <span style={{ fontSize: "0.7rem", color: "#9a6a20", marginLeft: "0.3rem" }}>— P&L questions, restaurant advice, UAE market insights</span>
+              </div>
+
+              {/* Chat Messages */}
+              <div style={{ height: "320px", overflowY: "auto", padding: "1rem", display: "flex", flexDirection: "column", gap: "0.8rem" }} id="chat-messages">
+                {chatMessages.length === 0 && (
+                  <div style={{ textAlign: "center", color: "#4a3a20", padding: "2rem" }}>
+                    <div style={{ fontSize: "2rem", marginBottom: "0.5rem" }}>💬</div>
+                    <div style={{ fontSize: "0.8rem" }}>Ask me anything about your restaurant finances!</div>
+                    <div style={{ display: "flex", gap: "0.5rem", justifyContent: "center", flexWrap: "wrap", marginTop: "1rem" }}>
+                      {["How can I reduce food costs?", "What is a good profit margin for UAE restaurants?", "How to improve cash flow?"].map(q => (
+                        <button key={q} onClick={() => sendChatMessage(q)}
+                          style={{ background: "#1a1205", border: "1px solid #4a2c00", color: "#f59e0b", padding: "0.3rem 0.7rem", borderRadius: "20px", fontSize: "0.72rem", cursor: "pointer", fontFamily: "inherit" }}>
+                          {q}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {chatMessages.map((msg, i) => (
+                  <div key={i} style={{ display: "flex", justifyContent: msg.role === "user" ? "flex-end" : "flex-start" }}>
+                    <div style={{
+                      maxWidth: "80%", padding: "0.6rem 1rem", borderRadius: msg.role === "user" ? "12px 12px 2px 12px" : "12px 12px 12px 2px",
+                      background: msg.role === "user" ? "linear-gradient(135deg,#b45309,#92400e)" : "#1a1a22",
+                      border: msg.role === "user" ? "none" : "1px solid #2a1800",
+                      fontSize: "0.82rem", color: msg.role === "user" ? "#fff" : "#d4c4a8", lineHeight: 1.6,
+                    }} dangerouslySetInnerHTML={{ __html: msg.role === "assistant" ? renderMarkdown(msg.content) : msg.content }} />
+                  </div>
+                ))}
+                {chatLoading && (
+                  <div style={{ display: "flex", justifyContent: "flex-start" }}>
+                    <div style={{ background: "#1a1a22", border: "1px solid #2a1800", padding: "0.6rem 1rem", borderRadius: "12px 12px 12px 2px", color: "#9a6a20", fontSize: "0.82rem" }}>
+                      ⏳ Thinking...
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Chat Input */}
+              <div style={{ borderTop: "1px solid #2a1800", padding: "0.8rem", display: "flex", gap: "0.5rem" }}>
+                <input
+                  value={chatInput}
+                  onChange={e => setChatInput(e.target.value)}
+                  onKeyDown={e => e.key === "Enter" && !e.shiftKey && sendChatMessage()}
+                  placeholder="Ask about your P&L, restaurant tips, UAE market..."
+                  style={{ flex: 1, background: "#0c0c10", border: "1px solid #3a2200", color: "#e2d9c8", padding: "0.5rem 0.8rem", borderRadius: "8px", outline: "none", fontSize: "0.82rem", fontFamily: "inherit" }}
+                />
+                <button onClick={() => sendChatMessage()} disabled={chatLoading || !chatInput.trim()}
+                  style={{ ...S.btn("linear-gradient(135deg,#b45309,#92400e)"), opacity: chatLoading || !chatInput.trim() ? 0.5 : 1, padding: "0.5rem 1rem" }}>
+                  Send
+                </button>
+                {chatMessages.length > 0 && (
+                  <button onClick={() => setChatMessages([])}
+                    style={{ ...S.btn("#1a1200","#9a6a20"), padding: "0.5rem 0.8rem", fontSize: "0.75rem" }}>
+                    Clear
+                  </button>
+                )}
+              </div>
+            </div>
           </div>
         )}
 
